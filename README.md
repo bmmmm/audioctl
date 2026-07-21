@@ -9,11 +9,12 @@ system device, read and set volume, mute and sample rate, and **cycle the output
 device with a global hotkey**. One dependency-free native binary.
 
 ```sh
-audioctl output set "BlackHole 2ch"   # route system audio
-audioctl output next                   # cycle to the next output device
-audioctl volume set 40                 # 40 % output volume
-audioctl mute toggle
-audioctl list --json                   # machine-readable
+audioctl output next                        # cycle to the next output device
+audioctl output set "External Headphones"   # or pick one by name
+audioctl volume set 40                      # 40 % output volume
+audioctl mute toggle                        # mute the current output
+audioctl output set "BlackHole 2ch"         # route system audio to a virtual device
+audioctl list --json                        # machine-readable
 ```
 
 The listing is aligned for eyes and greppable for scripts (`* ` marks the current
@@ -23,7 +24,7 @@ default for each direction):
 $ audioctl list
 * [out] MacBook Pro Speakers       builtin     2ch     48000 Hz
   [out] External Headphones        usb         2ch     48000 Hz
-  [i/o] BlackHole 2ch              virtual     2o/2i   48000 Hz
+  [out] LG UltraFine Display       hdmi        2ch     48000 Hz
 * [in ] MacBook Pro Microphone     builtin     1ch     48000 Hz
 ```
 
