@@ -1,5 +1,9 @@
 # audioctl
 
+[![CI](https://github.com/bmmmm/audioctl/actions/workflows/ci.yml/badge.svg)](https://github.com/bmmmm/audioctl/actions/workflows/ci.yml)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
+![Platform: macOS 12+](https://img.shields.io/badge/platform-macOS%2012%2B-lightgrey)
+
 Control macOS audio from the command line — switch the default output / input /
 system device, read and set volume, mute and sample rate, and **cycle the output
 device with a global hotkey**. One dependency-free native binary.
@@ -10,6 +14,17 @@ audioctl output next                   # cycle to the next output device
 audioctl volume set 40                 # 40 % output volume
 audioctl mute toggle
 audioctl list --json                   # machine-readable
+```
+
+The listing is aligned for eyes and greppable for scripts (`* ` marks the current
+default for each direction):
+
+```console
+$ audioctl list
+* [out] MacBook Pro Speakers       builtin     2ch     48000 Hz
+  [out] External Headphones        usb         2ch     48000 Hz
+  [i/o] BlackHole 2ch              virtual     2o/2i   48000 Hz
+* [in ] MacBook Pro Microphone     builtin     1ch     48000 Hz
 ```
 
 ## Why
