@@ -1,0 +1,55 @@
+name: Feature request
+description: Suggest something audioctl should be able to do
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        In scope: anything CoreAudio exposes about devices, volume, mute, sample
+        rates and routing, plus the hotkey layer.
+
+        Out of scope: capturing or processing audio (it would require a TCC
+        microphone permission this tool deliberately never needs) and
+        per-application volume (macOS does not expose it).
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: The task, not the proposed flag — there may be a shorter route to it.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: How would you expect it to look?
+      description: A command line, and what it should print.
+      placeholder: |
+        $ audioctl output toggle "Speakers" "Headphones"
+        output -> Headphones
+    validations:
+      required: false
+
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What kind of addition is this?
+      options:
+        - A new command or flag
+        - A new hotkey action
+        - More data in --json output
+        - Different behaviour of something that exists
+        - Packaging / installation
+    validations:
+      required: true
+
+  - type: textarea
+    id: workaround
+    attributes:
+      label: Can you do it today by scripting the existing commands?
+      description: >-
+        `--json` plus `jq` covers a lot. If it already works that way, say how —
+        it may belong in the README rather than in the binary.
+    validations:
+      required: false

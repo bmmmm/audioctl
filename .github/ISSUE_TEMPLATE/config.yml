@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/bmmmm/audioctl/security/advisories/new
+    about: Please report privately, not as a public issue — see SECURITY.md.
+  - name: AirPlay speakers do not show up
+    url: https://github.com/bmmmm/audioctl/blob/main/README.md#limitations
+    about: Known macOS limitation — individual AirPlay 2 endpoints live outside CoreAudio.

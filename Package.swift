@@ -5,13 +5,15 @@ let package = Package(
     name: "audioctl",
     platforms: [.macOS(.v12)],
     targets: [
-        .executableTarget(
-            name: "audioctl",
+        .target(
+            name: "AudioCtlCore",
             linkerSettings: [
                 .linkedFramework("CoreAudio"),
                 .linkedFramework("Carbon"),
                 .linkedFramework("AppKit"),
             ]
-        )
+        ),
+        .executableTarget(name: "audioctl", dependencies: ["AudioCtlCore"]),
+        .testTarget(name: "AudioCtlCoreTests", dependencies: ["AudioCtlCore"]),
     ]
 )

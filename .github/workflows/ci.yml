@@ -13,7 +13,31 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
       - name: Build
-        run: swift build -c release
+        run: swift build -c release -Xswiftc -warnings-as-errors
+
+      - name: Test
+        run: swift test -Xswiftc -warnings-as-errors
+
+      # The unit tests cover the pure logic; these check the binary actually
+      # dispatches, and that bad input is rejected rather than acted on.
       - name: Smoke test
-        run: swift run -c release audioctl version
+        run: |
+          set -euo pipefail
+          bin=$(swift build -c release --show-bin-path)/audioctl
+          "$bin" version
+          "$bin" help > /dev/null
+          "$bin" list --json | python3 -c 'import json,sys; json.load(sys.stdin)'
+
+          expect_exit() {
+            local want=$1; shift
+            set +e; "$@" > /dev/null 2>&1; local got=$?; set -e
+            [ "$got" = "$want" ] || { echo "FAIL: $* exited $got, expected $want"; exit 1; }
+          }
+          expect_exit 2 "$bin" volume set nan
+          expect_exit 2 "$bin" volume set 101
+          expect_exit 2 "$bin" list --verbose
+          expect_exit 2 "$bin" list --device x
+          expect_exit 2 "$bin" hotkeys bind "m" mute-toggle
+          expect_exit 2 "$bin" nonsense-command

@@ -1,0 +1,87 @@
+name: Bug report
+description: Something behaves differently than documented
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Audio hardware varies wildly, so the device dumps below are usually what
+        makes a report solvable on the first pass. `audioctl` never prints
+        anything but device names, UIDs and hardware properties — no personal data.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: What is misbehaving?
+      options:
+        - A device (missing from the list, no volume/mute, sample rate refused)
+        - Device selection (wrong device picked, name not matched)
+        - A hotkey (does nothing, wrong action, fires twice)
+        - The launch agent (not loading, dies, stops working after a while)
+        - Output or exit code (wrong value, broken --json, crash)
+        - Something else
+    validations:
+      required: true
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: The exact command, what you expected, and what you got instead.
+      placeholder: |
+        $ audioctl output set headphones
+        expected: switches to the USB headphones
+        got: "no device matching ..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: status
+    attributes:
+      label: Output of `audioctl status`
+      description: >-
+        Paste it as-is. For a hotkey or agent problem this is the single most
+        useful thing — it shows the bindings, the agent state, and whether the
+        agent points at a binary that has moved.
+      render: console
+    validations:
+      required: true
+
+  - type: textarea
+    id: devices
+    attributes:
+      label: Output of `audioctl list --json`
+      description: >-
+        Required for anything device-related. If one specific device is the
+        problem, add `audioctl info "<name>" --json` for it too.
+      render: json
+    validations:
+      required: false
+
+  - type: input
+    id: version
+    attributes:
+      label: audioctl version
+      description: "`audioctl version`, or the commit you built from"
+    validations:
+      required: true
+
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version and Mac model
+      placeholder: "macOS 15.2, MacBook Pro M3"
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: hotkey_checks
+    attributes:
+      label: For hotkey problems only
+      description: >-
+        `RegisterEventHotKey` reports success even when another app already owns
+        a combo, so these two checks separate "audioctl is broken" from "the
+        combo is taken".
+      options:
+        - label: I ran `audioctl hotkeys` in a terminal and pressed the key — the action did not run there either
+        - label: I tried a different, unusual combination (e.g. `ctrl+opt+shift+f9`) and it had the same problem
