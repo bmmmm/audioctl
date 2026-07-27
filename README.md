@@ -67,10 +67,13 @@ audioctl hotkeys …                          see "Global hotkeys" below
 
 Flags: `--json` machine-readable output · `--input` operate on the input scope ·
 `--device "<name|uid>"` target a device (`volume` / `mute` / `samplerate`).
+Anything after `--` is taken as a value, not a flag.
 
 Every mutating command prints the new state; errors go to stderr with a non-zero
-exit (`1` runtime, `2` usage). `--json` is available on `list`, `info`, `status`,
-`hotkeys status` and the `get` reads.
+exit (`1` runtime, `2` usage). An unknown flag, or `--input` / `--device` on a
+command that has no use for them, is rejected rather than ignored. `--json` works
+on every read — `status`, `list`, `info`, `hotkeys status`, and the `get` and
+`list` subcommands.
 
 ### Naming a device
 
@@ -150,7 +153,9 @@ Combos are written `modifier+…+key`, e.g. `ctrl+opt+m`. Modifiers are `ctrl`,
 swallow that key system-wide. `audioctl hotkeys keys` lists every accepted key
 name. Bindings live in `~/.config/audioctl/hotkeys.json` (honouring
 `XDG_CONFIG_HOME`) and may be edited by hand — a malformed file is reported as an
-error rather than silently falling back to the defaults.
+error rather than silently falling back to the defaults: `hotkeys status` names
+the problem and exits `1`, `status` keeps showing the audio state alongside it,
+and `hotkeys reset` restores the defaults.
 
 Run them as a per-user launch agent:
 
