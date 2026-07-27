@@ -52,6 +52,7 @@ cp .build/release/audioctl /usr/local/bin/    # or ~/.local/bin, anywhere on PAT
 ## Usage
 
 ```
+audioctl status                                everything in effect right now
 audioctl list [out|in|all]                    list devices (* = current default)
 audioctl info "<name>"                         full properties of one device
 audioctl output [get | list | set "<name>" | next | prev]
@@ -67,8 +68,35 @@ Flags: `--json` machine-readable output · `--input` operate on the input scope 
 `--device "<name>"` target a specific device instead of the current default.
 
 Every mutating command prints the new state; errors go to stderr with a non-zero
-exit (`1` runtime, `2` usage). `--json` is available on `list`, `info`, and the
-`get` reads for scripting.
+exit (`1` runtime, `2` usage). `--json` is available on `list`, `info`, `status`,
+and the `get` reads for scripting.
+
+## What is currently set
+
+`audioctl status` answers "what is active right now" in one shot — the three
+default devices with their volume, mute and sample rate, plus the hotkey bindings
+and the state of the launch agent behind them:
+
+```console
+$ audioctl status
+audioctl 0.1.0
+
+output:    MacBook Pro Speakers
+           builtin · 48000 Hz · volume 69% · mute off
+input:     MacBook Pro Microphone
+           builtin · 48000 Hz · volume 27% · mute off
+system:    BlackHole 2ch
+
+hotkeys
+  binding:   Ctrl+Opt+,   output prev
+             Ctrl+Opt+.   output next
+  agent:     loaded (pid 75451)
+  plist:     ~/Library/LaunchAgents/audioctl.hotkeys.plist
+```
+
+`audioctl hotkeys status` prints just the hotkey block. Both flag a *stale* agent —
+one whose plist points at a binary that has since moved — which is otherwise
+invisible: launchd keeps reporting the job as loaded while the hotkeys are dead.
 
 ## Global hotkey: cycle the output device
 

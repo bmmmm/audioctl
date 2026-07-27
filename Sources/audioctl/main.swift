@@ -417,6 +417,24 @@ func cmdSampleRate(args: [String], input: Bool, device: String?, json: Bool) {
 
 let HOTKEY_LABEL = "audioctl.hotkeys"
 
+/// One global binding. The single source of truth for registration, for what
+/// `status` prints, and for the usage text — so they can never drift apart.
+struct Hotkey {
+    let id: UInt32
+    let keyCode: Int
+    let key: String       // how the key prints
+    let action: String
+    let forward: Bool     // cycle direction for the default output device
+    var combo: String { "\(HOTKEY_MOD_LABEL)+\(key)" }
+}
+
+let HOTKEY_MODS = UInt32(controlKey | optionKey)
+let HOTKEY_MOD_LABEL = "Ctrl+Opt"
+let HOTKEYS = [
+    Hotkey(id: 1, keyCode: kVK_ANSI_Comma, key: ",", action: "output prev", forward: false),
+    Hotkey(id: 2, keyCode: kVK_ANSI_Period, key: ".", action: "output next", forward: true),
+]
+
 func hotkeyPlistPath() -> String {
     (NSHomeDirectory() as NSString).appendingPathComponent("Library/LaunchAgents/\(HOTKEY_LABEL).plist")
 }
@@ -440,17 +458,22 @@ func hotkeyPlist() -> String {
     """
 }
 
-@discardableResult
-func launchctl(_ args: [String]) -> Int32 {
+func launchctlOutput(_ args: [String]) -> (status: Int32, out: String) {
     let p = Process()
     p.executableURL = URL(fileURLWithPath: "/bin/launchctl")
     p.arguments = args
-    p.standardOutput = FileHandle.nullDevice
+    let pipe = Pipe()
+    p.standardOutput = pipe
     p.standardError = FileHandle.nullDevice
-    do { try p.run() } catch { return -1 }
+    do { try p.run() } catch { return (-1, "") }
+    // read before waiting: `launchctl print` output can exceed the pipe buffer and deadlock
+    let data = pipe.fileHandleForReading.readDataToEndOfFile()
     p.waitUntilExit()
-    return p.terminationStatus
+    return (p.terminationStatus, String(data: data, encoding: .utf8) ?? "")
 }
+
+@discardableResult
+func launchctl(_ args: [String]) -> Int32 { launchctlOutput(args).status }
 
 func installHotkeys() {
     let path = hotkeyPlistPath()
@@ -468,7 +491,7 @@ func installHotkeys() {
     }
     if st == 0 {
         print("hotkeys installed: \(path)")
-        print("  Ctrl+Opt+, = output prev    Ctrl+Opt+. = output next")
+        print("  " + HOTKEYS.map { "\($0.combo) = \($0.action)" }.joined(separator: "    "))
     } else {
         die("wrote \(path), but launchctl bootstrap failed (\(st)). Load it with:\n"
             + "  launchctl bootstrap gui/\(uid) \(path)", 1)
@@ -482,43 +505,135 @@ func uninstallHotkeys() {
     print("hotkeys uninstalled (\(path) removed)")
 }
 
-func hotkeyStatus() {
-    let loaded = launchctl(["print", "gui/\(getuid())/\(HOTKEY_LABEL)"]) == 0
-    let onDisk = FileManager.default.fileExists(atPath: hotkeyPlistPath())
-    print("launch agent: \(loaded ? "loaded" : "not loaded"), plist: \(onDisk ? "present" : "absent")")
+struct HotkeyAgentState {
+    let loaded: Bool
+    let pid: Int?
+    let plistPresent: Bool
+    /// Binary the installed plist points at — the agent keeps running the path it
+    /// was installed from, so a moved binary silently leaves it stale. Compared
+    /// symlink-resolved: an install via a PATH symlink is the same binary, not stale.
+    let plistBinary: String?
+    var stale: Bool { plistBinary.map { realPath($0) != realPath(binaryPath()) } ?? false }
+}
+
+func realPath(_ path: String) -> String {
+    URL(fileURLWithPath: path).resolvingSymlinksInPath().standardizedFileURL.path
+}
+
+func hotkeyAgentState() -> HotkeyAgentState {
+    let (st, out) = launchctlOutput(["print", "gui/\(getuid())/\(HOTKEY_LABEL)"])
+    var pid: Int?
+    if st == 0, let r = out.range(of: #"(?m)^\s*pid = (\d+)"#, options: .regularExpression) {
+        pid = Int(out[r].split(separator: "=")[1].trimmingCharacters(in: .whitespaces))
+    }
+    let path = hotkeyPlistPath()
+    var binary: String?
+    if let data = FileManager.default.contents(atPath: path),
+       let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any] {
+        binary = (plist["ProgramArguments"] as? [String])?.first
+    }
+    return HotkeyAgentState(loaded: st == 0, pid: pid,
+                            plistPresent: FileManager.default.fileExists(atPath: path), plistBinary: binary)
+}
+
+func hotkeyJSON() -> [String: Any] {
+    let s = hotkeyAgentState()
+    return [
+        "bindings": HOTKEYS.map { ["keys": $0.combo, "action": $0.action] },
+        "agent_loaded": s.loaded,
+        "agent_pid": s.pid.map { $0 as Any } ?? NSNull(),
+        "plist_path": hotkeyPlistPath(),
+        "plist_present": s.plistPresent,
+        "plist_binary": s.plistBinary.map { $0 as Any } ?? NSNull(),
+        "plist_binary_stale": s.stale,
+        "running_binary": binaryPath(),
+    ]
+}
+
+func printHotkeyStatus(indent: String = "") {
+    let s = hotkeyAgentState()
+    for (i, hk) in HOTKEYS.enumerated() {
+        print("\(indent)\(i == 0 ? "binding:  " : "          ") \(hk.combo.padding(toLength: 12, withPad: " ", startingAt: 0)) \(hk.action)")
+    }
+    let pid = s.pid.map { " (pid \($0))" } ?? ""
+    print("\(indent)agent:     \(s.loaded ? "loaded\(pid)" : "not loaded")")
+    print("\(indent)plist:     \(s.plistPresent ? hotkeyPlistPath() : "absent (run: audioctl hotkeys install)")")
+    if let b = s.plistBinary, s.stale {
+        print("\(indent)  stale:   agent runs \(b)")
+        print("\(indent)           this binary is \(binaryPath()) — re-run `audioctl hotkeys install` here")
+    }
+}
+
+func hotkeyStatus(json: Bool) {
+    if json { printJSON(hotkeyJSON()) } else { printHotkeyStatus() }
+}
+
+/// Everything currently in effect: the three default devices, their volume / mute /
+/// sample rate, and the hotkey bindings plus the launch agent behind them.
+func cmdStatus(json: Bool) {
+    let out = defaultDevice(kAudioHardwarePropertyDefaultOutputDevice)
+    let inp = defaultDevice(kAudioHardwarePropertyDefaultInputDevice)
+    let system = defaultDevice(kAudioHardwarePropertyDefaultSystemOutputDevice)
+
+    if json {
+        printJSON([
+            "version": VERSION,
+            "default_output": deviceJSON(out),
+            "default_input": deviceJSON(inp),
+            "default_system": deviceJSON(system),
+            "hotkeys": hotkeyJSON(),
+        ])
+        return
+    }
+
+    func line(_ label: String, _ d: AudioObjectID, _ scope: AudioObjectPropertyScope) {
+        print("\(label.padding(toLength: 10, withPad: " ", startingAt: 0)) \(deviceName(d))")
+        print("           \(transportType(d)) · \(fmtRate(sampleRate(d)))"
+            + " · volume \(fmtVol(volume(d, scope))) · mute \(fmtMute(muted(d, scope)))")
+    }
+
+    print("audioctl \(VERSION)\n")
+    line("output:", out, OUT)
+    line("input:", inp, IN)
+    print("system:    \(deviceName(system))")
+    print("")
+    print("hotkeys")
+    printHotkeyStatus(indent: "  ")
 }
 
 func runHotkeys() {
     let app = NSApplication.shared
     app.setActivationPolicy(.accessory)  // faceless: no Dock icon, no .app bundle
-    let mods = UInt32(controlKey | optionKey)
     let target = GetApplicationEventTarget()
     let sig = OSType(0x61637468)  // 'acth'
-    var ref1: EventHotKeyRef?
-    var ref2: EventHotKeyRef?
-    let s1 = RegisterEventHotKey(UInt32(kVK_ANSI_Comma), mods, EventHotKeyID(signature: sig, id: 1), target, 0, &ref1)
-    let s2 = RegisterEventHotKey(UInt32(kVK_ANSI_Period), mods, EventHotKeyID(signature: sig, id: 2), target, 0, &ref2)
-    if s1 != noErr || s2 != noErr {
-        // Note: RegisterEventHotKey usually still returns noErr when another app
-        // already owns the combo — the keys then silently do nothing. So a clean
-        // status is not proof the hotkeys work; see the README troubleshooting note.
-        FileHandle.standardError.write(
-            "warning: hotkey registration returned \(s1)/\(s2), expected 0\n".data(using: .utf8)!)
+    for hk in HOTKEYS {
+        var ref: EventHotKeyRef?
+        let st = RegisterEventHotKey(UInt32(hk.keyCode), HOTKEY_MODS,
+                                     EventHotKeyID(signature: sig, id: hk.id), target, 0, &ref)
+        if st != noErr {
+            // Note: RegisterEventHotKey usually still returns noErr when another app
+            // already owns the combo — the keys then silently do nothing. So a clean
+            // status is not proof the hotkeys work; see the README troubleshooting note.
+            FileHandle.standardError.write(
+                "warning: registering \(hk.combo) returned \(st), expected 0\n".data(using: .utf8)!)
+        }
     }
 
     var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
     let handler: EventHandlerUPP = { _, event, _ in
         guard let event = event else { return noErr }
-        var hk = EventHotKeyID()
+        var id = EventHotKeyID()
         GetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID),
-                          nil, MemoryLayout<EventHotKeyID>.size, nil, &hk)
-        if let name = cycleDefault(kAudioHardwarePropertyDefaultOutputDevice, OUT, forward: hk.id == 2) {
+                          nil, MemoryLayout<EventHotKeyID>.size, nil, &id)
+        guard let hk = HOTKEYS.first(where: { $0.id == id.id }) else { return noErr }
+        if let name = cycleDefault(kAudioHardwarePropertyDefaultOutputDevice, OUT, forward: hk.forward) {
             print("output -> \(name)"); fflush(stdout)
         }
         return noErr
     }
     InstallEventHandler(target, handler, 1, &spec, nil, nil)
-    print("audioctl hotkeys running — Ctrl+Opt+, = output prev · Ctrl+Opt+. = output next")
+    print("audioctl hotkeys running — "
+        + HOTKEYS.map { "\($0.combo) = \($0.action)" }.joined(separator: " · "))
     fflush(stdout)
     app.run()
 }
@@ -526,6 +641,7 @@ func runHotkeys() {
 let USAGE = """
 audioctl \(VERSION) — control macOS audio from the command line
 
+  audioctl status                             everything in effect right now
   audioctl list [out|in|all]                 list devices (* = current default)
   audioctl info "<name>"                      full properties of one device
   audioctl output [get | list | set "<name>" | next | prev]  default output
@@ -535,7 +651,7 @@ audioctl \(VERSION) — control macOS audio from the command line
   audioctl mute   [get | on | off | toggle]   output mute   (--input for input)
   audioctl samplerate [get | list | set <hz>] device nominal sample rate
   audioctl hotkeys [install | uninstall | status | plist]
-                     Ctrl+Opt+, / Ctrl+Opt+. cycle the output device;
+                     \(HOTKEYS.map(\.combo).joined(separator: " / ")) cycle the output device;
                      `install` runs it as a login agent (no bare arg = run now)
 
 Flags: --json machine-readable output · --input operate on the input scope
@@ -566,6 +682,7 @@ let command = positional.first ?? "list"
 let rest = Array(positional.dropFirst())
 
 switch command {
+case "status": cmdStatus(json: json)
 case "list": cmdList(rest.first ?? "all", json: json)
 case "info":
     guard let name = rest.first else { die("usage: audioctl info \"<name>\"", 2) }
@@ -583,7 +700,7 @@ case "hotkeys":
     switch rest.first {
     case "install": installHotkeys()
     case "uninstall": uninstallHotkeys()
-    case "status": hotkeyStatus()
+    case "status": hotkeyStatus(json: json)
     case "plist": print(hotkeyPlist())
     case nil, "run": runHotkeys()
     default: die("usage: audioctl hotkeys [install | uninstall | status | plist]", 2)
